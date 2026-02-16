@@ -411,6 +411,7 @@ class PredictTrader:
         self.gap_keep_threshold_ratio = parse_decimal(raw_threshold, threshold_field_name)
         self.gap_check_start_seconds = int(rt_cfg.get("gap_check_start_seconds", self.market_guard_seconds))
         self.force_cancel_seconds = int(rt_cfg.get("force_cancel_seconds", 10))
+        self.force_cancel_buffer_seconds = int(rt_cfg.get("force_cancel_buffer_seconds", 2))
         self.cancel_retry_interval_seconds = int(rt_cfg.get("cancel_retry_interval_seconds", 5))
 
         if self.gap_keep_threshold_ratio < 0:
@@ -1204,6 +1205,22 @@ class PredictTrader:
         return cycle
 
     def monitor_cycle(self, cycle: MarketCycle, market: Dict[str, Any]) -> None:
+        # Fast path: near close, cancel first before slow remote sync calls.
+        end_secs_now = int((cycle.end_at - now_utc()).total_seconds()) if cycle.end_at else None
+        force_cancel_trigger_secs = self.force_cancel_seconds + self.force_cancel_buffer_seconds
+        if end_secs_now is not None and end_secs_now <= force_cancel_trigger_secs:
+            canceled = self._cancel_unfilled_buy_orders(
+                cycle,
+                remote_by_hash={},
+                remote_by_id={},
+                reason=(
+                    "触发撤单规则: force_cancel(快速路径, "
+                    f"end_secs={end_secs_now}, trigger<={force_cancel_trigger_secs})"
+                ),
+            )
+            if canceled > 0:
+                cycle.gap_rule_cancelled = True
+
         orders = self.api.get_orders(first=300)
         remote_by_hash: Dict[str, Dict[str, Any]] = {}
         remote_by_id: Dict[str, Dict[str, Any]] = {}

@@ -33,6 +33,7 @@ cp config.example.yaml config.yaml
 - 策略参数：
   - `runtime.gap_keep_threshold_ratio`（默认 `0.0008`，即 `0.08%`）
   - `runtime.force_cancel_seconds`（默认 `10`）
+  - `runtime.force_cancel_buffer_seconds`（默认 `2`，实际触发强撤阈值为 `force_cancel_seconds + force_cancel_buffer_seconds`）
   - `runtime.market_guard_seconds`（默认 `30`）
 - API/行情参数：
   - `api.base_url`

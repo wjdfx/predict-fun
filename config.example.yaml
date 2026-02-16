@@ -43,6 +43,8 @@ runtime:
   # 默认 30：30 秒之前双边买单保持打开
   gap_check_start_seconds: 30
   force_cancel_seconds: 10
+  # 实盘网络与接口耗时缓冲：实际触发强撤 = force_cancel_seconds + force_cancel_buffer_seconds
+  force_cancel_buffer_seconds: 2
   market_guard_seconds: 30
 
   # 已发起撤单但状态未关闭时的重试间隔秒数
