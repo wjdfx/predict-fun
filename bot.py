@@ -298,6 +298,7 @@ class PredictApi:
         self.timeout = timeout
         self.session = requests.Session()
         self.jwt_token: Optional[str] = None
+        self._positions_endpoint_cache: Optional[str] = None
 
     def _headers(self, with_auth: bool = True) -> Dict[str, str]:
         h = {
@@ -351,6 +352,32 @@ class PredictApi:
         if isinstance(resp, dict) and maybe_get(resp, "id", "orderId", "order_id") is not None:
             return resp
         return None
+
+    def get_positions(self, first: int = 150) -> List[Dict[str, Any]]:
+        safe_first = max(1, min(int(first), 150))
+        params = {"first": safe_first}
+
+        if self._positions_endpoint_cache:
+            resp = self._request("GET", self._positions_endpoint_cache, params=params)
+            data = resp.get("data", []) if isinstance(resp, dict) else []
+            return data if isinstance(data, list) else []
+
+        candidates = ["/v1/positions", "/v1/portfolio/positions"]
+        last_err: Optional[Exception] = None
+        for path in candidates:
+            try:
+                resp = self._request("GET", path, params=params)
+                data = resp.get("data", []) if isinstance(resp, dict) else []
+                if isinstance(data, list):
+                    self._positions_endpoint_cache = path
+                    return data
+            except Exception as exc:
+                last_err = exc
+                continue
+
+        if last_err:
+            raise RuntimeError(f"GET positions failed: {last_err}")
+        return []
 
     def create_order(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/v1/orders", data=payload)
@@ -745,6 +772,38 @@ class PredictTrader:
         if not ro:
             return fallback
         return str(maybe_get(ro, "status") or fallback).upper()
+
+    def _get_position_qty_by_token_wei(self, token_id: str) -> int:
+        try:
+            positions = self.api.get_positions(first=150)
+        except Exception:
+            return 0
+        for p in positions:
+            outcome_obj = p.get("outcome") if isinstance(p.get("outcome"), dict) else {}
+            tid = (
+                maybe_get(outcome_obj, "onChainId", "on_chain_id", "tokenId", "token_id", "id")
+                or maybe_get(p, "tokenId", "token_id", "assetId", "asset_id", "id")
+            )
+            if tid is None:
+                continue
+            if str(tid) != str(token_id):
+                continue
+            qty_raw = maybe_get(
+                p,
+                "quantity",
+                "qty",
+                "size",
+                "position",
+                "balance",
+                "shares",
+                "amount",
+                "quantityWei",
+                "quantity_wei",
+                "balanceWei",
+                "balance_wei",
+            )
+            return self._normalize_any_qty_to_wei(qty_raw)
+        return 0
 
     def _refresh_tracked_orders_by_id(
         self,
@@ -1241,6 +1300,18 @@ class PredictTrader:
                 continue
             lo.last_known_status = self._extract_status(ro, fallback=lo.last_known_status)
             lo.last_known_filled_wei = self._extract_filled_wei(ro, fallback=lo.last_known_filled_wei, total_qty_wei=lo.quantity_wei)
+
+        # Fallback fill detector: use token position size in case order filled amount is stale.
+        for lo in cycle.buy_orders:
+            pos_qty_wei = self._get_position_qty_by_token_wei(lo.token_id)
+            if pos_qty_wei > lo.last_known_filled_wei:
+                lo.last_known_filled_wei = pos_qty_wei
+                logging.info(
+                    "🔎 持仓兜底检测到成交 方向=%s token=%s 持仓wei=%s",
+                    lo.outcome,
+                    lo.token_id,
+                    pos_qty_wei,
+                )
 
         self.cancel_opposite_buy_if_filled(cycle, remote_by_hash, remote_by_id)
 
