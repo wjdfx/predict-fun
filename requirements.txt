@@ -1,0 +1,4 @@
+requests>=2.32.0
+PyYAML>=6.0.1
+eth-account>=0.13.0
+predict-sdk>=0.0.12

@@ -1,0 +1,47 @@
+api:
+  base_url: "https://api.predict.fun"
+  api_key: "YOUR_API_KEY"
+  timeout_seconds: 20
+
+wallet:
+  private_key: "0xYOUR_PRIVATE_KEY"
+  # Predict Account deposit address；普通 EOA 留空
+  predict_account: ""
+
+trading:
+  chain_id: 56
+  market_title_prefix: "BTC/USD Up or Down"
+  market_duration_minutes: 15
+  poll_interval_seconds: 2
+  market_fetch_size: 50
+
+  # 只做双向买单
+  buy_price_per_share: "0.01"
+  buy_shares: "100"
+
+  # 严格 post-only，不降级
+  post_only_required: true
+
+  # 可选：启动时自动设置 approvals（链上交易，消耗 gas）
+  auto_set_approvals: false
+
+runtime:
+  dry_run: false
+  log_level: "INFO"
+  status_log_interval_seconds: 2
+  log_file: "bot.log"
+
+  # Current Price 来源
+  current_price_provider: "binance"
+  binance_symbol: "BTCUSDT"
+  current_price_ttl_seconds: 2
+
+  # 策略参数
+  gap_keep_threshold_usd: "0.0008"
+  # end_secs > gap_check_start_seconds 时不执行价差规则（默认极大值=全程执行）
+  gap_check_start_seconds: 999999
+  force_cancel_seconds: 10
+  market_guard_seconds: 30
+
+  # 已发起撤单但状态未关闭时的重试间隔秒数
+  cancel_retry_interval_seconds: 5
