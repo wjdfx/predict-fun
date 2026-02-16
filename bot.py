@@ -907,6 +907,9 @@ class PredictTrader:
         if not target:
             return "n/a"
         secs = int((target - now_utc()).total_seconds())
+        return self._seconds_value_to_text(secs)
+
+    def _seconds_value_to_text(self, secs: int) -> str:
         sign = "-" if secs < 0 else ""
         secs = abs(secs)
         mm, ss = divmod(secs, 60)
@@ -934,9 +937,15 @@ class PredictTrader:
             except Exception:
                 mapped_ptb = "n/a"
 
+        end_secs = int((cycle.end_at - now_utc()).total_seconds()) if cycle.end_at else None
+        gap_check_left_text = "n/a"
+        if end_secs is not None:
+            gap_check_left_text = self._seconds_value_to_text(end_secs - self.gap_check_start_seconds)
+
         lines = [
             f"[状态] market={cycle.market_id} slug={cycle.market_slug}",
-            f"[状态] 距离结束={self._seconds_to_text(cycle.end_at)} 规则判定={gap_reason} gap={gap if gap is not None else 'n/a'}",
+            f"[状态] 距离结束={self._seconds_to_text(cycle.end_at)} 距离开始价差检查={gap_check_left_text} "
+            f"规则判定={gap_reason} gap={gap if gap is not None else 'n/a'}",
             f"[状态] binance_open={cycle.binance_open or 'n/a'} ptb_open={cycle.ptb_open or 'n/a'} offset={cycle.ptb_binance_offset or 'n/a'}",
             f"[状态] ptb_now={ptb_now} mapped_ptb={mapped_ptb} current_price(binance)={current_price}",
         ]
