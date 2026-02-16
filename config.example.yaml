@@ -48,4 +48,5 @@ runtime:
   market_guard_seconds: 30
 
   # 已发起撤单但状态未关闭时的重试间隔秒数
+  cancel_request_timeout_seconds: 1
   cancel_retry_interval_seconds: 5

@@ -39,6 +39,7 @@ cp config.example.yaml config.yaml
   - `api.base_url`
   - `runtime.current_price_provider`
   - `runtime.binance_symbol`
+  - `runtime.cancel_request_timeout_seconds`（默认 `1`，仅用于撤单请求超时）
 
 ## 运行
 ```bash

@@ -309,7 +309,7 @@ class PredictApi:
             h["authorization"] = f"Bearer {self.jwt_token}"
         return h
 
-    def _request(self, method: str, path: str, *, params=None, data=None, auth=True) -> Any:
+    def _request(self, method: str, path: str, *, params=None, data=None, auth=True, timeout: Optional[int] = None) -> Any:
         url = f"{self.base_url}{path}"
         resp = self.session.request(
             method=method,
@@ -317,7 +317,7 @@ class PredictApi:
             headers=self._headers(with_auth=auth),
             params=params,
             data=json.dumps(data) if data is not None else None,
-            timeout=self.timeout,
+            timeout=self.timeout if timeout is None else timeout,
         )
         if resp.status_code >= 400:
             raise RuntimeError(f"{method} {path} failed: {resp.status_code} {resp.text[:300]}")
@@ -382,8 +382,8 @@ class PredictApi:
     def create_order(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/v1/orders", data=payload)
 
-    def remove_orders(self, ids: List[str]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/orders/remove", data={"data": {"ids": ids}})
+    def remove_orders(self, ids: List[str], timeout_seconds: Optional[int] = None) -> Dict[str, Any]:
+        return self._request("POST", "/v1/orders/remove", data={"data": {"ids": ids}}, timeout=timeout_seconds)
 
 
 class PredictTrader:
@@ -439,6 +439,7 @@ class PredictTrader:
         self.gap_check_start_seconds = int(rt_cfg.get("gap_check_start_seconds", self.market_guard_seconds))
         self.force_cancel_seconds = int(rt_cfg.get("force_cancel_seconds", 10))
         self.force_cancel_buffer_seconds = int(rt_cfg.get("force_cancel_buffer_seconds", 2))
+        self.cancel_request_timeout_seconds = int(rt_cfg.get("cancel_request_timeout_seconds", 1))
         self.cancel_retry_interval_seconds = int(rt_cfg.get("cancel_retry_interval_seconds", 5))
 
         if self.gap_keep_threshold_ratio < 0:
@@ -838,7 +839,7 @@ class PredictTrader:
             return len(ids), ids
 
         try:
-            resp = self.api.remove_orders(ids)
+            resp = self.api.remove_orders(ids, timeout_seconds=self.cancel_request_timeout_seconds)
             data = resp.get("data", {}) if isinstance(resp, dict) else {}
             removed = data.get("removed", []) if isinstance(data, dict) else []
             noop = data.get("noop", []) if isinstance(data, dict) else []
