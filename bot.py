@@ -942,10 +942,19 @@ class PredictTrader:
         if end_secs is not None:
             gap_check_left_text = self._seconds_value_to_text(end_secs - self.gap_check_start_seconds)
 
+        threshold_text = str(self.gap_keep_threshold)
+        if gap is None:
+            gap_compare_text = "n/a"
+        elif gap <= self.gap_keep_threshold:
+            gap_compare_text = f"{gap} <= {threshold_text} (保留)"
+        else:
+            gap_compare_text = f"{gap} > {threshold_text} (撤单)"
+
         lines = [
             f"[状态] market={cycle.market_id} slug={cycle.market_slug}",
             f"[状态] 距离结束={self._seconds_to_text(cycle.end_at)} 距离开始价差检查={gap_check_left_text} "
             f"规则判定={gap_reason} gap={gap if gap is not None else 'n/a'}",
+            f"[状态] gap阈值={threshold_text} gap对比={gap_compare_text}",
             f"[状态] binance_open={cycle.binance_open or 'n/a'} ptb_open={cycle.ptb_open or 'n/a'} offset={cycle.ptb_binance_offset or 'n/a'}",
             f"[状态] ptb_now={ptb_now} mapped_ptb={mapped_ptb} current_price(binance)={current_price}",
         ]
