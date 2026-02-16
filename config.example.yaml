@@ -12,7 +12,7 @@ trading:
   chain_id: 56
   market_title_prefix: "BTC/USD Up or Down"
   market_duration_minutes: 15
-  poll_interval_seconds: 2
+  poll_interval_seconds: 1
   market_fetch_size: 50
 
   # 只做双向买单
@@ -38,8 +38,9 @@ runtime:
 
   # 策略参数
   gap_keep_threshold_usd: "0.0008"
-  # end_secs > gap_check_start_seconds 时不执行价差规则（默认极大值=全程执行）
-  gap_check_start_seconds: 999999
+  # 仅当 end_secs <= gap_check_start_seconds 时才开始执行价差判断
+  # 默认 30：30 秒之前双边买单保持打开
+  gap_check_start_seconds: 30
   force_cancel_seconds: 10
   market_guard_seconds: 30
 

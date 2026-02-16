@@ -7,10 +7,11 @@
   - 开盘映射偏移：`offset = PriceToBeat_open - Binance_open`
   - 实时映射价：`mapped_ptb = PriceToBeat_now - offset`
   - 价差：`gap = |Binance_Current_now - mapped_ptb|`
-- 撤单规则（全程同一阈值）：
+- 撤单规则：
   - 若 `end_secs <= force_cancel_seconds`：无条件撤销未完全成交买单。
-  - 否则，若 `gap <= gap_keep_threshold_usd`：保留双边买单。
-  - 否则（`gap > gap_keep_threshold_usd`）：撤销未完全成交买单。
+  - 若 `end_secs > gap_check_start_seconds`（默认 30）：不做价差撤单，保持双边买单开启。
+  - 若 `force_cancel_seconds < end_secs <= gap_check_start_seconds`：按价差判断。
+  - 在价差判断窗口里，`gap <= gap_keep_threshold_usd` 保留双边买单，`gap > gap_keep_threshold_usd` 撤销未完全成交买单。
 - 任一方向买单有成交时，立即撤销对手方向未完成买单。
 
 ## 安装依赖

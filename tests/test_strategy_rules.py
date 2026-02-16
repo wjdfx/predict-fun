@@ -5,27 +5,27 @@ from strategy_rules import evaluate_cancel_decision
 
 
 class TestStrategyRules(unittest.TestCase):
-    def test_keep_when_gap_le_threshold_and_200s(self):
+    def test_no_cancel_before_30s_window_even_if_gap_small(self):
         reason, cancel = evaluate_cancel_decision(
             200,
             Decimal("0.0008"),
             force_cancel_seconds=10,
             gap_keep_threshold=Decimal("0.0008"),
-            gap_check_start_seconds=999999,
+            gap_check_start_seconds=30,
         )
-        self.assertEqual(reason, "keep_by_gap")
+        self.assertEqual(reason, "before_gap_window")
         self.assertFalse(cancel)
 
-    def test_cancel_when_gap_gt_threshold_and_200s(self):
+    def test_no_cancel_before_30s_window_even_if_gap_large(self):
         reason, cancel = evaluate_cancel_decision(
             200,
             Decimal("0.0009"),
             force_cancel_seconds=10,
             gap_keep_threshold=Decimal("0.0008"),
-            gap_check_start_seconds=999999,
+            gap_check_start_seconds=30,
         )
-        self.assertEqual(reason, "cancel_by_gap")
-        self.assertTrue(cancel)
+        self.assertEqual(reason, "before_gap_window")
+        self.assertFalse(cancel)
 
     def test_keep_when_gap_le_threshold_and_20s(self):
         reason, cancel = evaluate_cancel_decision(
@@ -33,7 +33,7 @@ class TestStrategyRules(unittest.TestCase):
             Decimal("0.0007"),
             force_cancel_seconds=10,
             gap_keep_threshold=Decimal("0.0008"),
-            gap_check_start_seconds=999999,
+            gap_check_start_seconds=30,
         )
         self.assertEqual(reason, "keep_by_gap")
         self.assertFalse(cancel)
@@ -44,7 +44,7 @@ class TestStrategyRules(unittest.TestCase):
             Decimal("0.0010"),
             force_cancel_seconds=10,
             gap_keep_threshold=Decimal("0.0008"),
-            gap_check_start_seconds=999999,
+            gap_check_start_seconds=30,
         )
         self.assertEqual(reason, "cancel_by_gap")
         self.assertTrue(cancel)
@@ -56,7 +56,7 @@ class TestStrategyRules(unittest.TestCase):
                 Decimal("0.0"),
                 force_cancel_seconds=10,
                 gap_keep_threshold=Decimal("0.0008"),
-                gap_check_start_seconds=999999,
+                gap_check_start_seconds=30,
             )
             self.assertEqual(reason, "force_cancel")
             self.assertTrue(cancel)

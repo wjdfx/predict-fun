@@ -396,10 +396,10 @@ class PredictTrader:
         self.current_price_ttl_seconds = int(rt_cfg.get("current_price_ttl_seconds", 2))
         self.binance_symbol = str(rt_cfg.get("binance_symbol", "BTCUSDT")).upper()
 
-        self.gap_keep_threshold = parse_decimal(rt_cfg.get("gap_keep_threshold_usd", "0.0008"), "runtime.gap_keep_threshold_usd")
-        self.gap_check_start_seconds = int(rt_cfg.get("gap_check_start_seconds", 999999))
-        self.force_cancel_seconds = int(rt_cfg.get("force_cancel_seconds", 10))
         self.market_guard_seconds = int(rt_cfg.get("market_guard_seconds", 30))
+        self.gap_keep_threshold = parse_decimal(rt_cfg.get("gap_keep_threshold_usd", "0.0008"), "runtime.gap_keep_threshold_usd")
+        self.gap_check_start_seconds = int(rt_cfg.get("gap_check_start_seconds", self.market_guard_seconds))
+        self.force_cancel_seconds = int(rt_cfg.get("force_cancel_seconds", 10))
         self.cancel_retry_interval_seconds = int(rt_cfg.get("cancel_retry_interval_seconds", 5))
 
         if self.gap_keep_threshold < 0:
@@ -463,7 +463,7 @@ class PredictTrader:
             try:
                 ob = fn()
                 if ob:
-                    logging.info("OrderBuilder initialized")
+                    logging.info("🧩 OrderBuilder 初始化成功")
                     return ob
             except Exception as exc:
                 errors.append(str(exc))
@@ -499,17 +499,17 @@ class PredictTrader:
         if not token:
             raise RuntimeError("accessToken missing")
         self.api.jwt_token = token
-        logging.info("Authenticated signer=%s", signer)
+        logging.info("🔐 鉴权成功 signer=%s", signer)
 
     def maybe_set_approvals(self) -> None:
         if not bool(self.cfg["trading"].get("auto_set_approvals", False)):
             return
         if self.dry_run:
-            logging.info("dry_run=true skip approvals")
+            logging.info("dry_run=true，跳过 approvals 设置")
             return
-        logging.info("Setting approvals on-chain")
+        logging.info("⛓️ 开始链上设置 approvals")
         self.ob.set_approvals()
-        logging.info("Approvals done")
+        logging.info("✅ approvals 设置完成")
 
     def pick_latest_open_market(self) -> Optional[Dict[str, Any]]:
         markets = self.api.get_markets(first=self.market_fetch_size, status="OPEN")
@@ -545,7 +545,7 @@ class PredictTrader:
                     cycle.market_detail = detail
                 cycle.market_detail_fetched_at = now
             except Exception as exc:
-                logging.warning("get market detail failed market=%s err=%s", cycle.market_id, exc)
+                logging.warning("拉取市场详情失败 market=%s err=%s", cycle.market_id, exc)
                 cycle.market_detail_fetched_at = now
 
         merged = dict(market)
@@ -731,7 +731,7 @@ class PredictTrader:
             return 0, []
 
         if self.dry_run:
-            logging.info("dry_run=true skip cancel ids=%s", ",".join(ids))
+            logging.info("dry_run=true，跳过撤单 ids=%s", ",".join(ids))
             return len(ids), ids
 
         try:
@@ -744,7 +744,7 @@ class PredictTrader:
                 handled_ids = ids
             return len(ids), handled_ids
         except Exception as exc:
-            logging.warning("cancel request failed ids=%s err=%s", ",".join(ids), exc)
+            logging.warning("撤单请求失败 ids=%s err=%s", ",".join(ids), exc)
             return 0, []
 
     def _mark_cancel_handled_for_orders(self, orders: List[LocalOrder], handled_ids: List[str]) -> None:
@@ -789,7 +789,7 @@ class PredictTrader:
             lo.cancel_attempts += 1
             lo.last_cancel_attempt_at = now
 
-        logging.info("%s cancel_count=%d ids=%s", reason, len(ids_to_cancel), ",".join(ids_to_cancel))
+        logging.info("🛑 %s，撤单数量=%d ids=%s", reason, len(ids_to_cancel), ",".join(ids_to_cancel))
         _, handled_ids = self._submit_cancel_request(ids_to_cancel)
         self._mark_cancel_handled_for_orders(to_mark, handled_ids)
         return len(ids_to_cancel)
@@ -837,7 +837,7 @@ class PredictTrader:
             lo.cancel_attempts += 1
             lo.last_cancel_attempt_at = now
 
-        logging.info("retry cancel pending_count=%d ids=%s", len(ids_to_cancel), ",".join(ids_to_cancel))
+        logging.info("🔁 撤单重试 pending_count=%d ids=%s", len(ids_to_cancel), ",".join(ids_to_cancel))
         _, handled_ids = self._submit_cancel_request(ids_to_cancel)
         self._mark_cancel_handled_for_orders(to_mark, handled_ids)
 
@@ -887,7 +887,7 @@ class PredictTrader:
             lo.cancel_attempts += 1
             lo.last_cancel_attempt_at = now
 
-        logging.info("one side filled, cancel opposite count=%d", len(ids_to_cancel))
+        logging.info("⚖️ 单边成交，撤销对手方向买单 count=%d", len(ids_to_cancel))
         _, handled_ids = self._submit_cancel_request(ids_to_cancel)
         self._mark_cancel_handled_for_orders(to_mark, handled_ids)
 
@@ -935,10 +935,10 @@ class PredictTrader:
                 mapped_ptb = "n/a"
 
         lines = [
-            f"[status] market={cycle.market_id} slug={cycle.market_slug}",
-            f"[status] end_in={self._seconds_to_text(cycle.end_at)} gap_reason={gap_reason} gap={gap if gap is not None else 'n/a'}",
-            f"[status] binance_open={cycle.binance_open or 'n/a'} ptb_open={cycle.ptb_open or 'n/a'} offset={cycle.ptb_binance_offset or 'n/a'}",
-            f"[status] ptb_now={ptb_now} mapped_ptb={mapped_ptb} current_price(binance)={current_price}",
+            f"[状态] market={cycle.market_id} slug={cycle.market_slug}",
+            f"[状态] 距离结束={self._seconds_to_text(cycle.end_at)} 规则判定={gap_reason} gap={gap if gap is not None else 'n/a'}",
+            f"[状态] binance_open={cycle.binance_open or 'n/a'} ptb_open={cycle.ptb_open or 'n/a'} offset={cycle.ptb_binance_offset or 'n/a'}",
+            f"[状态] ptb_now={ptb_now} mapped_ptb={mapped_ptb} current_price(binance)={current_price}",
         ]
 
         for lo in cycle.buy_orders:
@@ -948,10 +948,10 @@ class PredictTrader:
             if lo.cancel_finalized and filled_wei < lo.quantity_wei:
                 status = "CANCELLED_LOCAL"
             lines.append(
-                "[status] buy "
-                f"outcome={lo.outcome} order_id={lo.order_id or '-'} status={status} "
-                f"filled={Decimal(filled_wei)/WAD}/{Decimal(lo.quantity_wei)/WAD} "
-                f"cancel_requested={lo.cancel_requested} cancel_attempts={lo.cancel_attempts}"
+                "[状态] 买单 "
+                f"方向={lo.outcome} order_id={lo.order_id or '-'} 状态={status} "
+                f"成交={Decimal(filled_wei)/WAD}/{Decimal(lo.quantity_wei)/WAD} "
+                f"已发起撤单={lo.cancel_requested} 撤单尝试次数={lo.cancel_attempts}"
             )
 
         for line in lines:
@@ -1030,7 +1030,7 @@ class PredictTrader:
             remote_order_hash = None
             initial_status = "UNKNOWN"
             initial_filled_wei = 0
-            logging.info("dry_run=true skip create order side=%s outcome=%s", "BUY" if side == Side.BUY else "SELL", outcome)
+            logging.info("dry_run=true，跳过下单 side=%s outcome=%s", "BUY" if side == Side.BUY else "SELL", outcome)
         else:
             try:
                 create_resp = self.api.create_order(payload)
@@ -1110,7 +1110,7 @@ class PredictTrader:
                 cycle.ptb_binance_offset = None
 
         logging.info(
-            "new cycle market=%s start=%s end=%s binance_open=%s ptb_open=%s offset=%s",
+            "🚀 新周期开始 market=%s start=%s end=%s binance_open=%s ptb_open=%s offset=%s",
             cycle.market_id,
             cycle.start_at,
             cycle.end_at,
@@ -1155,7 +1155,7 @@ class PredictTrader:
         )
 
         if should_cancel:
-            canceled = self._cancel_unfilled_buy_orders(cycle, remote_by_hash, remote_by_id, f"cancel rule hit: {reason}")
+            canceled = self._cancel_unfilled_buy_orders(cycle, remote_by_hash, remote_by_id, f"触发撤单规则: {reason}")
             if canceled > 0:
                 cycle.gap_rule_cancelled = True
 
@@ -1170,13 +1170,13 @@ class PredictTrader:
             try:
                 market = self.pick_latest_open_market()
                 if not market:
-                    logging.info("no matching open market for prefix=%s", self.market_prefix)
+                    logging.info("当前无匹配开放市场 prefix=%s", self.market_prefix)
                     time.sleep(self.poll_interval)
                     continue
 
                 current_market_id = str(maybe_get(market, "id", ""))
                 if not current_market_id:
-                    logging.warning("market has no id, skip")
+                    logging.warning("匹配到的市场缺少 id，跳过")
                     time.sleep(self.poll_interval)
                     continue
 
@@ -1186,7 +1186,7 @@ class PredictTrader:
                             st, et = parse_market_times(market, self.duration_min)
                             end_secs = self._seconds_to_market_end(market)
                             logging.info(
-                                "market inside guard window skip market=%s start=%s end=%s end_secs=%s guard=%s",
+                                "⏱️ 市场已进入保护窗口，跳过下单 market=%s start=%s end=%s end_secs=%s guard=%s",
                                 current_market_id,
                                 st,
                                 et,
@@ -1204,13 +1204,13 @@ class PredictTrader:
                 time.sleep(self.poll_interval)
             except RuntimeError as exc:
                 if "401" in str(exc) or "403" in str(exc):
-                    logging.warning("auth may expire, re-auth: %s", exc)
+                    logging.warning("⚠️ 鉴权可能过期，尝试重新鉴权: %s", exc)
                     self.auth()
                 else:
-                    logging.exception("runtime error: %s", exc)
+                    logging.exception("❌ 运行时错误: %s", exc)
                     time.sleep(self.poll_interval)
             except Exception:
-                logging.exception("unexpected exception")
+                logging.exception("❌ 未预期异常")
                 time.sleep(self.poll_interval)
 
 
