@@ -285,6 +285,7 @@ class MarketCycle:
     market_detail_fetched_at: Optional[datetime] = None
     binance_open: Optional[str] = None
     binance_open_time: Optional[datetime] = None
+    binance_open_source: str = "n/a"
     ptb_open: Optional[str] = None
     ptb_binance_offset: Optional[str] = None
     gap_rule_cancelled: bool = False
@@ -598,31 +599,56 @@ class PredictTrader:
             return None, None
         try:
             start_ms = int(start_at.timestamp() * 1000)
-            end_ms = start_ms + 60_000
-            resp = requests.get(
-                "https://api.binance.com/api/v3/klines",
-                params={
-                    "symbol": self.binance_symbol,
-                    "interval": "1m",
-                    "startTime": start_ms,
-                    "endTime": end_ms,
-                    "limit": 1,
-                },
-                timeout=self.api.timeout,
-            )
-            if resp.status_code >= 400:
-                return None, None
-            data = resp.json()
-            if not isinstance(data, list) or not data:
-                return None, None
-            candle = data[0]
-            if not isinstance(candle, list) or len(candle) < 2:
-                return None, None
-            candle_open_time = datetime.fromtimestamp(int(candle[0]) / 1000, tz=timezone.utc)
-            candle_open_price = str(candle[1])
-            return candle_open_price, candle_open_time
+            queries = [
+                {"startTime": start_ms, "endTime": start_ms + 60_000, "limit": 1},
+                {"startTime": start_ms - 300_000, "endTime": start_ms + 300_000, "limit": 20},
+            ]
+            for q in queries:
+                resp = requests.get(
+                    "https://api.binance.com/api/v3/klines",
+                    params={
+                        "symbol": self.binance_symbol,
+                        "interval": "1m",
+                        "startTime": q["startTime"],
+                        "endTime": q["endTime"],
+                        "limit": q["limit"],
+                    },
+                    timeout=self.api.timeout,
+                )
+                if resp.status_code >= 400:
+                    continue
+                data = resp.json()
+                if not isinstance(data, list) or not data:
+                    continue
+
+                best: Optional[list] = None
+                best_dist: Optional[int] = None
+                for candle in data:
+                    if not isinstance(candle, list) or len(candle) < 2:
+                        continue
+                    c_ms = int(candle[0])
+                    dist = abs(start_ms - c_ms)
+                    if best is None:
+                        best = candle
+                        best_dist = dist
+                        continue
+                    if c_ms <= start_ms and int(best[0]) > start_ms:
+                        best = candle
+                        best_dist = dist
+                        continue
+                    if (c_ms <= start_ms and int(best[0]) <= start_ms and c_ms > int(best[0])) or (
+                        (int(best[0]) > start_ms and c_ms > start_ms and dist < (best_dist or dist + 1))
+                    ):
+                        best = candle
+                        best_dist = dist
+
+                if best is not None:
+                    candle_open_time = datetime.fromtimestamp(int(best[0]) / 1000, tz=timezone.utc)
+                    candle_open_price = str(best[1])
+                    return candle_open_price, candle_open_time
         except Exception:
             return None, None
+        return None, None
 
     def _compute_gap(self, cycle: MarketCycle, market: Dict[str, Any]) -> Tuple[Optional[Decimal], Optional[Decimal], Dict[str, str]]:
         market = self._merge_market_with_detail(cycle, market)
@@ -981,7 +1007,8 @@ class PredictTrader:
             f"规则判定={gap_reason} gap(USD)={gap if gap is not None else 'n/a'} "
             f"gap_ratio={gap_ratio if gap_ratio is not None else 'n/a'}",
             f"[状态] gap阈值(比例)={threshold_text} ({threshold_pct_text}) gap对比={gap_compare_text}",
-            f"[状态] binance_open={cycle.binance_open or 'n/a'} ptb_open={cycle.ptb_open or 'n/a'} offset={cycle.ptb_binance_offset or 'n/a'}",
+            f"[状态] binance_open={cycle.binance_open or 'n/a'} source={cycle.binance_open_source} "
+            f"ptb_open={cycle.ptb_open or 'n/a'} offset={cycle.ptb_binance_offset or 'n/a'}",
             f"[状态] ptb_now={ptb_now} mapped_ptb={mapped_ptb} current_price(binance)={current_price}",
         ]
 
@@ -1141,10 +1168,21 @@ class PredictTrader:
         ptb_open, _ = extract_market_prices(market)
         cycle.ptb_open = None if ptb_open == "n/a" else ptb_open
 
-        if st is not None:
-            b0, b0_ts = self._fetch_binance_price_at_start(st)
+        start_ref = st or now_utc()
+        b0, b0_ts = self._fetch_binance_price_at_start(start_ref)
+        if b0 is not None:
             cycle.binance_open = b0
             cycle.binance_open_time = b0_ts
+            cycle.binance_open_source = "binance_kline"
+        else:
+            fallback_b0 = self._fetch_external_current_price()
+            if fallback_b0 != "n/a":
+                cycle.binance_open = fallback_b0
+                cycle.binance_open_time = now_utc()
+                cycle.binance_open_source = "binance_ticker_fallback"
+                logging.warning("⚠️ Binance开盘基准K线获取失败，改用实时价兜底 baseline=%s", fallback_b0)
+            else:
+                cycle.binance_open_source = "unavailable"
 
         if cycle.ptb_open is not None and cycle.binance_open is not None:
             try:
@@ -1154,11 +1192,12 @@ class PredictTrader:
                 cycle.ptb_binance_offset = None
 
         logging.info(
-            "🚀 新周期开始 market=%s start=%s end=%s binance_open=%s ptb_open=%s offset=%s",
+            "🚀 新周期开始 market=%s start=%s end=%s binance_open=%s source=%s ptb_open=%s offset=%s",
             cycle.market_id,
             cycle.start_at,
             cycle.end_at,
             cycle.binance_open,
+            cycle.binance_open_source,
             cycle.ptb_open,
             cycle.ptb_binance_offset,
         )
