@@ -7,11 +7,13 @@
   - 开盘映射偏移：`offset = PriceToBeat_open - Binance_open`
   - 实时映射价：`mapped_ptb = PriceToBeat_now - offset`
   - 价差：`gap = |Binance_Current_now - mapped_ptb|`
+  - 价差比例：`gap_ratio = gap / mapped_ptb`
 - 撤单规则：
   - 若 `end_secs <= force_cancel_seconds`：无条件撤销未完全成交买单。
   - 若 `end_secs > gap_check_start_seconds`（默认 30）：不做价差撤单，保持双边买单开启。
   - 若 `force_cancel_seconds < end_secs <= gap_check_start_seconds`：按价差判断。
-  - 在价差判断窗口里，`gap <= gap_keep_threshold_usd` 保留双边买单，`gap > gap_keep_threshold_usd` 撤销未完全成交买单。
+  - 在价差判断窗口里，比较 `gap_ratio` 与阈值：
+  - `gap_ratio <= gap_keep_threshold_usd` 保留双边买单，`gap_ratio > gap_keep_threshold_usd` 撤销未完全成交买单。
 - 任一方向买单有成交时，立即撤销对手方向未完成买单。
 
 ## 安装依赖
@@ -29,7 +31,7 @@ cp config.example.yaml config.yaml
 - `wallet.private_key`
 - 可选 `wallet.predict_account`
 - 策略参数：
-  - `runtime.gap_keep_threshold_usd`（默认 `0.0008`）
+  - `runtime.gap_keep_threshold_usd`（默认 `0.0008`，语义为比例阈值，即 `0.08%`）
   - `runtime.force_cancel_seconds`（默认 `10`）
   - `runtime.market_guard_seconds`（默认 `30`）
 - API/行情参数：

@@ -397,13 +397,15 @@ class PredictTrader:
         self.binance_symbol = str(rt_cfg.get("binance_symbol", "BTCUSDT")).upper()
 
         self.market_guard_seconds = int(rt_cfg.get("market_guard_seconds", 30))
+        # Keep legacy key name for compatibility.
+        # Semantics: ratio threshold (e.g. 0.0008 = 0.08%)
         self.gap_keep_threshold = parse_decimal(rt_cfg.get("gap_keep_threshold_usd", "0.0008"), "runtime.gap_keep_threshold_usd")
         self.gap_check_start_seconds = int(rt_cfg.get("gap_check_start_seconds", self.market_guard_seconds))
         self.force_cancel_seconds = int(rt_cfg.get("force_cancel_seconds", 10))
         self.cancel_retry_interval_seconds = int(rt_cfg.get("cancel_retry_interval_seconds", 5))
 
         if self.gap_keep_threshold < 0:
-            raise ValueError("runtime.gap_keep_threshold_usd must be >= 0")
+            raise ValueError("runtime.gap_keep_threshold_usd must be >= 0 (ratio, e.g. 0.0008 = 0.08%)")
 
         self._cached_current_price: Optional[str] = None
         self._cached_current_price_at: Optional[datetime] = None
@@ -614,7 +616,7 @@ class PredictTrader:
         except Exception:
             return None, None
 
-    def _compute_gap(self, cycle: MarketCycle, market: Dict[str, Any]) -> Tuple[Optional[Decimal], Dict[str, str]]:
+    def _compute_gap(self, cycle: MarketCycle, market: Dict[str, Any]) -> Tuple[Optional[Decimal], Optional[Decimal], Dict[str, str]]:
         market = self._merge_market_with_detail(cycle, market)
         ptb_now, market_current = extract_market_prices(market)
         current_price = self._fetch_external_current_price() if market_current == "n/a" else market_current
@@ -624,20 +626,27 @@ class PredictTrader:
             "current_price": current_price,
             "mapped_ptb": "n/a",
             "gap": "n/a",
+            "gap_ratio": "n/a",
         }
 
         if cycle.ptb_binance_offset is None or ptb_now == "n/a" or current_price == "n/a":
-            return None, metrics
+            return None, None, metrics
 
         try:
             offset = Decimal(cycle.ptb_binance_offset)
             mapped_ptb = Decimal(ptb_now) - offset
             gap = abs(Decimal(current_price) - mapped_ptb)
+            denom = abs(mapped_ptb)
+            gap_ratio: Optional[Decimal] = None
+            if denom != 0:
+                gap_ratio = gap / denom
             metrics["mapped_ptb"] = f"{mapped_ptb:.6f}"
             metrics["gap"] = f"{gap:.6f}"
-            return gap, metrics
+            if gap_ratio is not None:
+                metrics["gap_ratio"] = f"{gap_ratio:.8f}"
+            return gap, gap_ratio, metrics
         except Exception:
-            return None, metrics
+            return None, None, metrics
 
     def _find_remote_order(
         self,
@@ -923,6 +932,7 @@ class PredictTrader:
         remote_by_hash: Dict[str, Dict[str, Any]],
         remote_by_id: Dict[str, Dict[str, Any]],
         gap: Optional[Decimal],
+        gap_ratio: Optional[Decimal],
         gap_reason: str,
     ) -> None:
         if not self._should_log_status():
@@ -943,18 +953,26 @@ class PredictTrader:
             gap_check_left_text = self._seconds_value_to_text(end_secs - self.gap_check_start_seconds)
 
         threshold_text = str(self.gap_keep_threshold)
-        if gap is None:
+        threshold_pct_text = f"{(self.gap_keep_threshold * Decimal('100')):.4f}%"
+        if gap_ratio is None:
             gap_compare_text = "n/a"
-        elif gap <= self.gap_keep_threshold:
-            gap_compare_text = f"{gap} <= {threshold_text} (保留)"
+        elif gap_ratio <= self.gap_keep_threshold:
+            gap_compare_text = (
+                f"{gap_ratio:.8f} ({(gap_ratio * Decimal('100')):.4f}%) "
+                f"<= {threshold_text} ({threshold_pct_text}) (保留)"
+            )
         else:
-            gap_compare_text = f"{gap} > {threshold_text} (撤单)"
+            gap_compare_text = (
+                f"{gap_ratio:.8f} ({(gap_ratio * Decimal('100')):.4f}%) "
+                f"> {threshold_text} ({threshold_pct_text}) (撤单)"
+            )
 
         lines = [
             f"[状态] market={cycle.market_id} slug={cycle.market_slug}",
             f"[状态] 距离结束={self._seconds_to_text(cycle.end_at)} 距离开始价差检查={gap_check_left_text} "
-            f"规则判定={gap_reason} gap={gap if gap is not None else 'n/a'}",
-            f"[状态] gap阈值={threshold_text} gap对比={gap_compare_text}",
+            f"规则判定={gap_reason} gap(USD)={gap if gap is not None else 'n/a'} "
+            f"gap_ratio={gap_ratio if gap_ratio is not None else 'n/a'}",
+            f"[状态] gap阈值(比例)={threshold_text} ({threshold_pct_text}) gap对比={gap_compare_text}",
             f"[状态] binance_open={cycle.binance_open or 'n/a'} ptb_open={cycle.ptb_open or 'n/a'} offset={cycle.ptb_binance_offset or 'n/a'}",
             f"[状态] ptb_now={ptb_now} mapped_ptb={mapped_ptb} current_price(binance)={current_price}",
         ]
@@ -1163,10 +1181,10 @@ class PredictTrader:
         self.cancel_opposite_buy_if_filled(cycle, remote_by_hash, remote_by_id)
 
         end_secs = int((cycle.end_at - now_utc()).total_seconds()) if cycle.end_at else None
-        gap, _metrics = self._compute_gap(cycle, market)
+        gap, gap_ratio, _metrics = self._compute_gap(cycle, market)
         reason, should_cancel = evaluate_cancel_decision(
             end_secs,
-            gap,
+            gap_ratio,
             force_cancel_seconds=self.force_cancel_seconds,
             gap_keep_threshold=self.gap_keep_threshold,
             gap_check_start_seconds=self.gap_check_start_seconds,
@@ -1178,7 +1196,7 @@ class PredictTrader:
                 cycle.gap_rule_cancelled = True
 
         self._retry_pending_buy_cancels(cycle, remote_by_hash, remote_by_id)
-        self.log_cycle_status(cycle, market, remote_by_hash, remote_by_id, gap, reason)
+        self.log_cycle_status(cycle, market, remote_by_hash, remote_by_id, gap, gap_ratio, reason)
 
     def loop(self) -> None:
         self.auth()
