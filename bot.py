@@ -397,15 +397,23 @@ class PredictTrader:
         self.binance_symbol = str(rt_cfg.get("binance_symbol", "BTCUSDT")).upper()
 
         self.market_guard_seconds = int(rt_cfg.get("market_guard_seconds", 30))
-        # Keep legacy key name for compatibility.
+        # Prefer the explicit ratio key; keep legacy key for compatibility.
         # Semantics: ratio threshold (e.g. 0.0008 = 0.08%)
-        self.gap_keep_threshold = parse_decimal(rt_cfg.get("gap_keep_threshold_usd", "0.0008"), "runtime.gap_keep_threshold_usd")
+        ratio_key = "gap_keep_threshold_ratio"
+        legacy_key = "gap_keep_threshold_usd"
+        if ratio_key in rt_cfg:
+            raw_threshold = rt_cfg.get(ratio_key)
+            threshold_field_name = f"runtime.{ratio_key}"
+        else:
+            raw_threshold = rt_cfg.get(legacy_key, "0.0008")
+            threshold_field_name = f"runtime.{legacy_key}"
+        self.gap_keep_threshold_ratio = parse_decimal(raw_threshold, threshold_field_name)
         self.gap_check_start_seconds = int(rt_cfg.get("gap_check_start_seconds", self.market_guard_seconds))
         self.force_cancel_seconds = int(rt_cfg.get("force_cancel_seconds", 10))
         self.cancel_retry_interval_seconds = int(rt_cfg.get("cancel_retry_interval_seconds", 5))
 
-        if self.gap_keep_threshold < 0:
-            raise ValueError("runtime.gap_keep_threshold_usd must be >= 0 (ratio, e.g. 0.0008 = 0.08%)")
+        if self.gap_keep_threshold_ratio < 0:
+            raise ValueError("gap_keep_threshold_ratio must be >= 0 (e.g. 0.0008 = 0.08%)")
 
         self._cached_current_price: Optional[str] = None
         self._cached_current_price_at: Optional[datetime] = None
@@ -952,11 +960,11 @@ class PredictTrader:
         if end_secs is not None:
             gap_check_left_text = self._seconds_value_to_text(end_secs - self.gap_check_start_seconds)
 
-        threshold_text = str(self.gap_keep_threshold)
-        threshold_pct_text = f"{(self.gap_keep_threshold * Decimal('100')):.4f}%"
+        threshold_text = str(self.gap_keep_threshold_ratio)
+        threshold_pct_text = f"{(self.gap_keep_threshold_ratio * Decimal('100')):.4f}%"
         if gap_ratio is None:
             gap_compare_text = "n/a"
-        elif gap_ratio <= self.gap_keep_threshold:
+        elif gap_ratio <= self.gap_keep_threshold_ratio:
             gap_compare_text = (
                 f"{gap_ratio:.8f} ({(gap_ratio * Decimal('100')):.4f}%) "
                 f"<= {threshold_text} ({threshold_pct_text}) (保留)"
@@ -1186,7 +1194,7 @@ class PredictTrader:
             end_secs,
             gap_ratio,
             force_cancel_seconds=self.force_cancel_seconds,
-            gap_keep_threshold=self.gap_keep_threshold,
+            gap_keep_threshold=self.gap_keep_threshold_ratio,
             gap_check_start_seconds=self.gap_check_start_seconds,
         )
 
